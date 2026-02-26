@@ -1,0 +1,248 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "mysql" // Or "mysql" based on your preference
+    url      = env("DATABASE_URL")
+}
+
+// --- 1. Category Structure ---
+
+model MainHead {
+    id        Int       @id @default(autoincrement())
+    name      String    @db.VarChar(100)
+    subHeads  SubHead[]
+    items     Item[]
+    createdAt DateTime  @default(now())
+}
+
+model SubHead {
+    id         Int        @id @default(autoincrement())
+    name       String     @db.VarChar(100)
+    mainHead   MainHead   @relation(fields: [mainHeadId], references: [id])
+    mainHeadId Int
+    categories Category[]
+    items      Item[]
+}
+
+model Category {
+    id        Int     @id @default(autoincrement())
+    name      String  @db.VarChar(100)
+    subHead   SubHead @relation(fields: [subHeadId], references: [id])
+    subHeadId Int
+    items     Item[]
+}
+
+// --- 2. Item Master ---
+
+model Item {
+    id        Int     @id @default(autoincrement())
+    name      String  @db.VarChar(200)
+    shortName String? @db.VarChar(50)
+    brand     String? @db.VarChar(100)
+
+    // Relations to Categories
+    mainHead   MainHead @relation(fields: [mainHeadId], references: [id])
+    mainHeadId Int
+    subHead    SubHead  @relation(fields: [subHeadId], references: [id])
+    subHeadId  Int
+    category   Category @relation(fields: [categoryId], references: [id])
+    categoryId Int
+
+    liquorType     String?  @db.VarChar(50) // e.g., IMFL, Imported
+    sizeType       String?  @db.VarChar(20) // e.g., PINT, QUART
+    ml             Decimal? @db.Decimal(8, 2)
+    bottlesPerCase Int      @default(12)
+
+    barcode    String? @db.VarChar(100)
+    exciseCode String? @db.VarChar(100)
+
+    minimumStock Int @default(0)
+    reorderLevel Int @default(0)
+    reorderDays  Int @default(0)
+
+    godownLocation String? @db.VarChar(100)
+    shelfLocation  String? @db.VarChar(100)
+
+    isAvailable Boolean @default(true)
+    isFavourite Boolean @default(false)
+
+    // Extended Relations
+    prices        ItemPrice[]
+    barcodes      ItemBarcode[]
+    conversions   ItemConversion[]
+    purchaseItems PurchaseInvoiceItem[]
+    salesItems    SalesInvoiceItem[]
+    stockLedger   StockLedger[]
+
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+}
+
+// --- 3. Pricing & Barcodes ---
+
+model ItemPrice {
+    id                     Int      @id @default(autoincrement())
+    item                   Item     @relation(fields: [itemId], references: [id])
+    itemId                 Int
+    purchasePricePerCase   Decimal  @db.Decimal(10, 2)
+    purchasePricePerBottle Decimal  @db.Decimal(10, 2)
+    salesPricePerBottle    Decimal  @db.Decimal(10, 2)
+    wholesalePrice         Decimal? @db.Decimal(10, 2)
+    mrp                    Decimal? @db.Decimal(10, 2)
+    stockValuationMethod   String   @default("purchase")
+    effectiveFromDate      DateTime @db.Date
+    createdAt              DateTime @default(now())
+}
+
+model ItemBarcode {
+    id      Int    @id @default(autoincrement())
+    item    Item   @relation(fields: [itemId], references: [id])
+    itemId  Int
+    barcode String @unique @db.VarChar(100)
+}
+
+// --- 4. Suppliers & Purchase ---
+
+model Supplier {
+    id               Int               @id @default(autoincrement())
+    name             String            @db.VarChar(200)
+    gstNumber        String?           @db.VarChar(20)
+    contactPerson    String?           @db.VarChar(100)
+    phone            String?           @db.VarChar(20)
+    address          String?           @db.Text
+    purchaseInvoices PurchaseInvoice[]
+}
+
+model PurchaseInvoice {
+    id            Int                   @id @default(autoincrement())
+    supplier      Supplier              @relation(fields: [supplierId], references: [id])
+    supplierId    Int
+    invoiceNumber String                @db.VarChar(100)
+    invoiceDate   DateTime              @db.Date
+    totalAmount   Decimal               @db.Decimal(12, 2)
+    taxAmount     Decimal               @default(0) @db.Decimal(12, 2)
+    createdBy     User                  @relation(fields: [createdById], references: [id])
+    createdById   Int
+    items         PurchaseInvoiceItem[]
+    createdAt     DateTime              @default(now())
+}
+
+model PurchaseInvoiceItem {
+    id                     Int             @id @default(autoincrement())
+    purchaseInvoice        PurchaseInvoice @relation(fields: [purchaseInvoiceId], references: [id])
+    purchaseInvoiceId      Int
+    item                   Item            @relation(fields: [itemId], references: [id])
+    itemId                 Int
+    quantityCases          Int             @default(0)
+    quantityBottles        Int             @default(0)
+    purchasePricePerCase   Decimal?        @db.Decimal(10, 2)
+    purchasePricePerBottle Decimal?        @db.Decimal(10, 2)
+    totalAmount            Decimal         @db.Decimal(12, 2)
+}
+
+// --- 5. POS Sales Module ---
+
+model SalesInvoice {
+    id             Int                @id @default(autoincrement())
+    invoiceNumber  String             @unique @db.VarChar(100)
+    invoiceDate    DateTime           @db.Date
+    counter        Counter            @relation(fields: [counterId], references: [id])
+    counterId      Int
+    user           User               @relation(fields: [userId], references: [id])
+    userId         Int
+    grossAmount    Decimal            @db.Decimal(12, 2)
+    discountAmount Decimal            @default(0) @db.Decimal(12, 2)
+    taxAmount      Decimal            @default(0) @db.Decimal(12, 2)
+    netAmount      Decimal            @db.Decimal(12, 2)
+    paymentMode    PaymentMode
+    items          SalesInvoiceItem[]
+    createdAt      DateTime           @default(now())
+}
+
+enum PaymentMode {
+    CASH
+    CARD
+    UPI
+    CREDIT
+}
+
+model SalesInvoiceItem {
+    id             Int          @id @default(autoincrement())
+    salesInvoice   SalesInvoice @relation(fields: [salesInvoiceId], references: [id])
+    salesInvoiceId Int
+    item           Item         @relation(fields: [itemId], references: [id])
+    itemId         Int
+    quantity       Decimal      @db.Decimal(10, 3) // Supports pegs
+    rate           Decimal      @db.Decimal(10, 2)
+    freeQuantity   Decimal      @default(0) @db.Decimal(10, 3)
+    totalAmount    Decimal      @db.Decimal(12, 2)
+}
+
+// --- 6. Stock & Conversions ---
+
+model StockLedger {
+    id              Int             @id @default(autoincrement())
+    item            Item            @relation(fields: [itemId], references: [id])
+    itemId          Int
+    transactionType TransactionType
+    referenceId     Int? // ID of invoice/manual entry
+    referenceType   String?         @db.VarChar(50)
+    qtyIn           Decimal         @default(0) @db.Decimal(10, 3)
+    qtyOut          Decimal         @default(0) @db.Decimal(10, 3)
+    balanceAfter    Decimal         @db.Decimal(10, 3)
+    createdAt       DateTime        @default(now())
+}
+
+enum TransactionType {
+    PURCHASE
+    SALE
+    ADJUSTMENT
+    RETURN
+    TRANSFER
+}
+
+model ItemConversion {
+    id               Int     @id @default(autoincrement())
+    item             Item    @relation(fields: [itemId], references: [id])
+    itemId           Int
+    unitType         String  @db.VarChar(30) // bottle, peg_30, etc.
+    conversionFactor Decimal @db.Decimal(10, 4)
+}
+
+// --- 7. Users, Roles & Locations ---
+
+model Role {
+    id    Int    @id @default(autoincrement())
+    name  String @db.VarChar(50)
+    users User[]
+}
+
+model User {
+    id               Int               @id @default(autoincrement())
+    name             String            @db.VarChar(100)
+    username         String            @unique @db.VarChar(50)
+    passwordHash     String            @db.VarChar(255)
+    role             Role              @relation(fields: [roleId], references: [id])
+    roleId           Int
+    isActive         Boolean           @default(true)
+    salesInvoices    SalesInvoice[]
+    purchaseInvoices PurchaseInvoice[]
+}
+
+model Counter {
+    id            Int            @id @default(autoincrement())
+    name          String         @db.VarChar(100)
+    location      String?        @db.VarChar(100)
+    salesInvoices SalesInvoice[]
+}
+
+model Godown {
+    id       Int     @id @default(autoincrement())
+    name     String  @db.VarChar(100)
+    location String? @db.VarChar(200)
+}
